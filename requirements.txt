@@ -1,4 +1,3 @@
-selenium
 requests
 reportlab
 python-telegram-bot==13.15
