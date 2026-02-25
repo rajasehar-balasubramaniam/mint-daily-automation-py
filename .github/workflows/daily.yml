@@ -2,7 +2,7 @@ name: Daily Mint Automation
 
 on:
   schedule:
-    - cron: '30 1 * * *'   # 7 AM IST
+    - cron: '30 1 * * *'
   workflow_dispatch:
 
 jobs:
@@ -10,23 +10,23 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
+      - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
-      - name: Install Chromium and Chromedriver
+      - name: Install Chromium Only
         run: |
           sudo apt update
-          sudo apt install -y chromium-browser chromium-chromedriver
+          sudo apt install -y chromium-browser
 
       - name: Install Python Dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install --upgrade pip
+          pip install selenium requests reportlab python-telegram-bot==13.15
 
-      - name: Run Automation Script
+      - name: Run Script
         run: python mint_automation.py
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
