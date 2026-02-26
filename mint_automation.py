@@ -14,12 +14,22 @@ async def run():
         page = await context.new_page()
 
         print("Opening website...")
-        await page.goto("https://www.tradingref.com/mint", timeout=60000)
-
-        await page.wait_for_load_state("networkidle")
-        await page.wait_for_timeout(5000)
-
-        print("Injecting internal generation script...")
+        await page.goto(
+            "https://www.tradingref.com/mint",
+            wait_until="domcontentloaded",
+            timeout=60000
+        )
+        
+        # Wait until core app.js objects exist
+        await page.wait_for_function(
+            "typeof AppState !== 'undefined' && typeof PDFManager !== 'undefined'",
+            timeout=30000
+        )
+        
+        # Small safety buffer
+        await page.wait_for_timeout(3000)
+        
+                print("Injecting internal generation script...")
 
         await page.evaluate("""
         async () => {
