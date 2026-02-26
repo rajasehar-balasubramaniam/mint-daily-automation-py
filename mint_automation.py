@@ -1,85 +1,74 @@
+import asyncio
 import os
-import time
 import requests
-from io import BytesIO
-from reportlab.platypus import SimpleDocTemplate, Image
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import inch
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
-import telegram
+from playwright.async_api import async_playwright
 
-# ===== TELEGRAM SECRETS =====
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-CHAT_ID = os.environ.get("CHAT_ID")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# ===== CHROME OPTIONS =====
-chrome_options = Options()
-chrome_options.binary_location = "/usr/bin/chromium-browser"
-chrome_options.add_argument("--headless=new")
-chrome_options.add_argument("--no-sandbox")
-chrome_options.add_argument("--disable-dev-shm-usage")
+async def run():
 
-# Auto-manage correct chromedriver version
-service = Service(ChromeDriverManager().install())
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(accept_downloads=True)
+        page = await context.new_page()
 
-driver = webdriver.Chrome(service=service, options=chrome_options)
+        print("Opening website...")
+        await page.goto("https://www.tradingref.com/mint", timeout=60000)
 
-print("Opening tradingref.com")
-driver.get("https://www.tradingref.com/")
+        await page.wait_for_load_state("networkidle")
+        await page.wait_for_timeout(5000)
 
-time.sleep(5)
+        print("Injecting internal generation script...")
 
-print("Clicking Generate button")
-button = driver.find_element(By.XPATH, "//button[contains(text(),'Generate & Download PDF')]")
-button.click()
+        await page.evaluate("""
+        async () => {
 
-# Wait for images to load
-time.sleep(25)
+            const today = new Date().toISOString().split("T")[0];
 
-print("Extracting image URLs")
-imgs = driver.find_elements(By.TAG_NAME, "img")
+            AppState.selectedDate = today;
+            await DataManager.loadEditions(today);
 
-image_urls = []
-for img in imgs:
-    src = img.get_attribute("src")
-    if src and "ht-mint-epaper-fs.s3" in src:
-        image_urls.append(src)
+            AppState.selectedLanguage = "English";
+            await DataManager.populateNewspapers("English");
 
-driver.quit()
+            AppState.selectedNewspaper = "Mint";
+            await DataManager.populateEditions("Mint");
 
-# Remove duplicates
-image_urls = list(dict.fromkeys(image_urls))
+            AppState.selectedEdition = "Bengaluru";
 
-if not image_urls:
-    print("No images found.")
-    exit()
+            await PDFManager.generate();
+        }
+        """)
 
-print("Images found:", len(image_urls))
+        print("Waiting for download...")
 
-# ===== CREATE PDF =====
-pdf_filename = "mint.pdf"
-doc = SimpleDocTemplate(pdf_filename, pagesize=A4)
-elements = []
+        download = await page.wait_for_event("download", timeout=180000)
 
-for url in image_urls:
-    r = requests.get(url)
-    img_stream = BytesIO(r.content)
-    img = Image(img_stream, width=6*inch, height=10*inch)
-    elements.append(img)
+        path = await download.path()
+        filename = download.suggested_filename
 
-doc.build(elements)
+        print("Downloaded:", filename)
 
-print("PDF created.")
+        send_to_telegram(path, filename)
 
-# ===== SEND TO TELEGRAM =====
-if TELEGRAM_TOKEN and CHAT_ID:
-    bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    with open(pdf_filename, "rb") as f:
-        bot.send_document(chat_id=CHAT_ID, document=f)
-    print("Sent to Telegram.")
-else:
-    print("Telegram secrets missing.")
+        await browser.close()
+
+
+def send_to_telegram(file_path, filename):
+    print("Sending to Telegram...")
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendDocument"
+
+    with open(file_path, "rb") as f:
+        response = requests.post(
+            url,
+            data={"chat_id": TELEGRAM_CHAT_ID},
+            files={"document": (filename, f)}
+        )
+
+    print("Telegram response:", response.text)
+
+
+if __name__ == "__main__":
+    asyncio.run(run())
