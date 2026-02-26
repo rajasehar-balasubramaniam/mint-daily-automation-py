@@ -23,20 +23,40 @@ async def run():
 
         await page.evaluate("""
         async () => {
-
+        
+            const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+        
             const today = new Date().toISOString().split("T")[0];
-
             AppState.selectedDate = today;
+        
+            console.log("Loading editions...");
             await DataManager.loadEditions(today);
-
+        
+            // WAIT until editionsData is ready
+            let retries = 0;
+            while ((!DataManager.editionsData || 
+                   !DataManager.editionsData["English"] ||
+                   !DataManager.editionsData["English"]["Mint"] ||
+                   !DataManager.editionsData["English"]["Mint"]["Bengaluru"]) 
+                   && retries < 20) {
+        
+                await sleep(1000);
+                retries++;
+            }
+        
+            if (!DataManager.editionsData ||
+                !DataManager.editionsData["English"] ||
+                !DataManager.editionsData["English"]["Mint"] ||
+                !DataManager.editionsData["English"]["Mint"]["Bengaluru"]) {
+        
+                throw new Error("Mint Bengaluru edition not available yet.");
+            }
+        
             AppState.selectedLanguage = "English";
-            await DataManager.populateNewspapers("English");
-
             AppState.selectedNewspaper = "Mint";
-            await DataManager.populateEditions("Mint");
-
             AppState.selectedEdition = "Bengaluru";
-
+        
+            console.log("Generating PDF...");
             await PDFManager.generate();
         }
         """)
